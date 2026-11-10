@@ -2,3 +2,39 @@
 *.log
 node_modules/
 .env
+
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Uu]serSettings/
+[Rr]ecordings/
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+sysinfo.txt
+crashlytics-build.properties
+*.apk
+*.aab
+*.unitypackage
+*.app
+
+# Unity3D generated meta files that should NOT be force-ignored
+# (meta files for Assets ARE tracked - only these specific cache dirs are not)
+/[Aa]ssets/AssetStoreTools*

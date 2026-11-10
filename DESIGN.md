@@ -20,18 +20,23 @@ lighthearted fishing-chaos (How to Fish), ~50% quiet mystery/discovery
   applies and independent of any particle/visual feedback.
 - No paid assets. Placeholder primitives/low-poly stand-ins until final art.
 - Prefer small testable MonoBehaviours over one large manager class.
+- Physics-affecting movement (`CharacterController.Move`, gravity
+  integration, ground checks) runs in `FixedUpdate`, not `Update`. Purely
+  visual interpolation (facing rotation, camera) runs in `Update`/`LateUpdate`.
 
 ## Folder structure
 
 ```
 Assets/_Project/
   Scripts/
+    Stillwater.Gameplay.asmdef
     Player/    movement, camera, input reading
     Fishing/   rod, line, cast, reel            (Phase 2)
     Fish/      behaviour + species config        (Phase 2)
     Boat/      boat controller                   (Phase 3)
     Core/      shared gameplay interfaces
     UI/        HUD                                (Phase 3)
+  Tests/PlayMode/   headless play-mode smoke tests
   Prefabs/     Player, Fish, Environment
   ScriptableObjects/FishSpecies/
   Art/Placeholder/
@@ -39,85 +44,68 @@ Assets/_Project/
   Settings/    InputActions, URP
 ```
 
-## Phase 1 scope (this delivery)
+## Current status: Phase 1 complete and verified
 
-Character movement + third-person camera + a place to stand on. Explicitly
-**not** included yet: fishing, fish, boat, ragdoll, HUD — each is its own
-phase so we can test one solid system at a time instead of a pile of
-half-working ones.
+Unity 6.000.0.85f2 (LTS) is installed, project is set up with URP + the new
+Input System, and the first playable loop (movement, jump, third-person
+camera, test world) is built, wired, and passing automated tests.
 
-### Scripts delivered
+### What exists
 
-- `Player/PlayerInputReader.cs` — Input System → plain data seam.
+- `Player/PlayerInputReader.cs` — owns the Input System interaction
+  directly (subscribes to `InputAction` callbacks itself; no `PlayerInput`
+  UnityEvent wiring needed). Exposes `MoveInput`, `LookInput`,
+  `JumpPressed`, `PrimaryActionHeld` as plain data.
 - `Player/PlayerMotor.cs` — CharacterController-based move/jump,
-  camera-relative movement, grounded check.
+  camera-relative movement. Ground state and movement integration run in
+  `FixedUpdate`; facing rotation runs in `Update`.
 - `Player/ThirdPersonCamera.cs` — manual orbit-follow rig (no Cinemachine
-  dependency yet; the rig doubles as the "forward" reference `PlayerMotor`
-  moves relative to, so switching to first-person later is a camera-rig
-  swap, not a movement rewrite).
+  dependency; doubles as the "forward" reference `PlayerMotor` moves
+  relative to, so first-person later is a camera-rig swap, not a movement
+  rewrite).
+- `Settings/InputActions/StillwaterControls.inputactions` — Player map with
+  Move/Look/Jump/PrimaryAction.
+- `Settings/URP/` — URP pipeline + renderer + global settings assets, wired
+  as the project's default render pipeline.
+- `Prefabs/Player/Player.prefab`, `Prefabs/Player/CameraRig.prefab`.
+- `Scenes/TestWorld.unity` — ground plane, a few test boxes, directional
+  light, Player + CameraRig instances, fully wired.
+- `Tests/PlayMode/MovementSmokeTests.cs` — two headless PlayMode tests
+  (`dotnet`/Unity Test Framework): player settles under gravity and reports
+  grounded after falling; CharacterController actually moves the player
+  horizontally. Run via:
+  ```
+  /Applications/Unity/Hub/Editor/6000.0.85f2/Unity.app/Contents/MacOS/Unity \
+    -batchmode -nographics -projectPath /Users/kasperi/fishing \
+    -runTests -testPlatform PlayMode -testResults <path>.xml -logFile -
+  ```
 
-### Not yet created (needs the Unity Editor, see setup steps below)
+### Two real bugs found and fixed via the automated tests
 
-- The `.inputactions` asset itself — hand-authoring that JSON by hand is
-  fragile across Input System versions; create it in-editor (2 minutes,
-  steps below) rather than risk a malformed asset.
-- The test scene, Player prefab, and CharacterController/camera wiring.
+1. **`CharacterController.isGrounded` is unreliable at rest.** It only
+   reflects whether the *previous* `Move()` call registered a collision
+   below, and at near-zero vertical velocity it flickers `false` most
+   frames — jump input gated on it would have been unreliable in the
+   shipped game, not just in tests. Fixed with a raycast-based ground
+   check (`PlayerMotor.CheckGrounded`) that starts the ray inside the
+   capsule (PhysX doesn't report a hit against the collider the ray
+   originates in) and ignores a hit if it somehow is the controller itself.
+2. **Movement integrated in `Update()` can silently stall at very high
+   frame rates.** With sub-millisecond `deltaTime` (observed in headless
+   batch runs, but equally possible on an uncapped/high-refresh-rate
+   display), `velocity * deltaTime` per frame rounds below
+   `CharacterController.Move()`'s minimum-move threshold and gets dropped
+   — velocity keeps integrating correctly in script, but the character
+   barely moves. Fixed by moving all `CharacterController.Move` and gravity
+   integration into `FixedUpdate`, which has a constant step
+   (`Time.fixedDeltaTime`, 0.02s) regardless of render frame rate.
 
-## Setup steps (do this in Unity once installed)
+### Manual verification still worth doing
 
-1. **Install**: Unity Hub → Unity 6 (LTS) → create project, template
-   **3D (URP)**, name `Stillwater`.
-   - This repo is already a git repo with `Assets/_Project/...` populated.
-     Unity Hub's "New Project" dialog creates a *new* project folder under
-     whatever "Location" you pick — it won't write into an existing
-     non-empty folder. Practical options:
-     a) Create the project anywhere temporary, then copy its generated
-        `Assets/`, `Packages/`, `ProjectSettings/` folders into
-        `/Users/kasperi/fishing`, merging `Assets/_Project` (already here)
-        with Unity's generated `Assets/Scenes` etc.
-     b) Or create it with Location = `/Users/kasperi` and name `fishing`
-        — only works if Unity refuses less strictly than expected; if it
-        errors on the existing folder, use (a).
-   - Tell me once the project opens and I'll verify the layout.
-2. **Package Manager** → confirm **Input System** package is installed
-   (URP template usually prompts to switch input handling to "Input System
-   Package (New)" — accept and let it restart).
-3. **Create Input Actions asset**: `Assets/_Project/Settings/InputActions`
-   → right-click → Create → Input Actions → name `StillwaterControls`.
-   Open it and add:
-   - Action Map `Player`
-     - `Move` (Value, Vector2) — bind WASD (2D Vector composite) + left
-       gamepad stick.
-     - `Look` (Value, Vector2) — bind mouse delta + right gamepad stick.
-     - `Jump` (Button) — Space / gamepad South button.
-     - `PrimaryAction` (Button) — Left Mouse / gamepad West button
-       (reserved for casting in Phase 2).
-   - Check "Generate C# Class" **off** for now — we're wiring via
-     `PlayerInput` component's Unity Events, not generated code.
-4. **Test scene**: `Assets/_Project/Scenes/TestWorld.unity` — flat ground
-   plane + a few boxes/ramps to judge movement feel.
-5. **Player prefab**: empty GameObject `Player` with:
-   - `CharacterController` (radius ~0.4, height ~1.8)
-   - `PlayerInputReader`
-   - `PlayerMotor` (drag in the `PlayerInputReader`, and the camera rig's
-     transform once created)
-   - `PlayerInput` component (Unity's, from the Input System package),
-     Actions = `StillwaterControls`, Default Map = `Player`, Behavior =
-     "Invoke Unity Events" → wire `Move`/`Look`/`Jump`/`PrimaryAction`
-     events to the matching methods on `PlayerInputReader`.
-   - A simple capsule or placeholder low-poly mesh as a visible child.
-6. **Camera rig**: empty GameObject `CameraRig` with `ThirdPersonCamera`
-   (target = Player transform, input = the same `PlayerInputReader`) and a
-   child `Main Camera`.
-7. Press Play, walk with WASD, look with mouse, jump with Space.
-
-## How to test this step
-
-- Player moves in the direction held relative to camera facing.
-- Character visually rotates to face movement direction.
-- Jump only triggers when grounded; no double-jump, no sinking through
-  ground.
-- Camera orbits smoothly with mouse, clamped pitch (can't flip upside down).
+The automated tests cover physics correctness (falls, settles, grounds,
+moves) but not feel or real input devices. Worth a manual Play Mode pass in
+the Editor to judge: camera feel with real mouse input, movement
+responsiveness, jump height/arc feel.
 
 ## What's still missing
 
@@ -130,6 +118,6 @@ half-working ones.
 
 ## Next development phase
 
-Once movement+camera is verified in-editor: build the **physics-based
-fishing core** (rod bend, line, cast, hook-fish-grab, reel) against a single
-placeholder fish, before adding species variety or the boat.
+Build the **physics-based fishing core** (rod bend, line, cast,
+hook-fish-grab, reel) against a single placeholder fish, before adding
+species variety or the boat.

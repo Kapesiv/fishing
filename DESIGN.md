@@ -1,8 +1,11 @@
-# STILLWATER — Phase 1 Technical Plan
+# STILLWATER — Technical Plan
 
 3D PC co-op-ready fishing adventure. Unity 6, URP, C#. Target feel: ~50%
 lighthearted fishing-chaos (How to Fish), ~50% quiet mystery/discovery
 (Dredge-like), stylized/low-poly, no photorealism.
+
+See [`GAME_DESIGN.md`](./GAME_DESIGN.md) for the full game vision, visual
+style, and prototype scope this technical plan is implementing against.
 
 ## Architecture principles
 
